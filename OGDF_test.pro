@@ -18,8 +18,10 @@ LIBS += -lcoin -logdf -L"c:/OGDF/Win32/Release"
 
 
 SOURCES += main.cpp\
-        MainWindow.cpp
+        MainWindow.cpp \
+    QGraphScene.cpp
 
-HEADERS  += MainWindow.h
+HEADERS  += MainWindow.h \
+    QGraphScene.h
 
 FORMS    += MainWindow.ui

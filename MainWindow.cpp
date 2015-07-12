@@ -9,6 +9,7 @@
 #include <ogdf/layered/OptimalRanking.h>
 #include <ogdf/layered/MedianHeuristic.h>
 #include <ogdf/layered/OptimalHierarchyLayout.h>
+#include <ogdf/misclayout/CircularLayout.h>
 
 #include <QGraphicsView>
 #include <QGraphicsItem>
@@ -19,6 +20,9 @@
 #include <QGraphicsProxyWidget>
 #include <QPaintEvent>
 #include <QDebug>
+#include <QPainterPath>
+
+#include "QGraphScene.h"
 
 #include <memory>
 #include <vector>
@@ -205,31 +209,23 @@ private:
     qreal _cachedWidth;
     qreal _cachedHeight;
 };
-#include <QPainterPath>
+
 class GraphEdge : public QAbstractGraphicsShapeItem
 {
 public:
     GraphEdge(QPointF start, QPointF end, ogdf::DPolyline bends, QRectF sourceRect, QRectF targetRect) : QAbstractGraphicsShapeItem()
     {
-        QList<QPointF> points;
-        points << start;
-        for(auto p : bends)
-            points << QPointF(p.m_x, p.m_y);
-        points << end;
-
-        QPointF nearestI = calculateNearestIntersect(sourceRect, points[0], points[1]);
-        qDebug() << "nearestI" << nearestI;
-        points[0]=nearestI;
-        int len = points.length();
-        nearestI = calculateNearestIntersect(targetRect, points[len-1], points[len-2]);
-        points[len-1]=nearestI;
-
-        preparePainterPath(points);
+        QList<QPointF> linePoints = calculateLine(start, end, bends, sourceRect, targetRect);
+        for(auto p : linePoints)
+            qDebug() << p;
+        QList<QPointF> arrowPoints = calculateArrow(linePoints);
+        _boundingRect = calculateBoundingRect(linePoints, arrowPoints);
+        preparePainterPaths(linePoints, arrowPoints);
     }
 
     QRectF boundingRect() const
     {
-        return QRectF(0, 0, 0, 0);
+        return _boundingRect;
     }
 
     void paint(QPainter* painter, const QStyleOptionGraphicsItem* option, QWidget* widget)
@@ -237,19 +233,29 @@ public:
         Q_UNUSED(option);
         Q_UNUSED(widget);
 
-        painter->setRenderHint(QPainter::Antialiasing);
-
+        //save painter
         painter->save();
+
+#if _DEBUG
+        //draw bounding rect
+        painter->setPen(QPen(Qt::red, 1));
+        painter->drawRect(boundingRect());
+#endif //_DEBUG
+
+        //set painter options
+        painter->setRenderHint(QPainter::Antialiasing);
 
         int lineSize = 2;
 
+        //draw line
         painter->setPen(QPen(Qt::green, lineSize));
-        painter->drawRect(boundingRect());
         painter->drawPath(_line);
 
+        //draw arrow
         painter->setPen(QPen(Qt::green, lineSize));
         painter->drawPath(_arrow);
 
+        //restore painter
         painter->restore();
     }
 
@@ -261,10 +267,11 @@ public:
 
     QPointF calculateNearestIntersect(QRectF rect, QPointF p1, QPointF p2)
     {
-        qDebug() << "calculateNearest";
+        /*qDebug() << "calculateNearest";
         qDebug() << "rect" << rect.topLeft() << rect.bottomRight();
         qDebug() << "p1" << p1;
-        qDebug() << "p2" << p2;
+        qDebug() << "p2" << p2;*/
+
         //y=a*x+b
         //a = dy/dx = (p1.y-p2.y)/(p1.x-p2.x)
         //b = p1.y - p1.x;
@@ -274,9 +281,9 @@ public:
         if(div == 0)
         {
             QPointF i1(p1.x(), rect.top());
-            qDebug() << "i1" << i1;
+            //qDebug() << "i1" << i1;
             QPointF i2(p1.x(), rect.bottom());
-            qDebug() << "i2" << i2;
+            //qDebug() << "i2" << i2;
 
             if(p2.y() < p1.y())
                 return i1;
@@ -290,14 +297,14 @@ public:
 
             qreal a = (p1.y()-p2.y()) / div;
             qreal b = p1.y() - a * p1.x();
-            qDebug() << "a" << a << "b" << b;
+            //qDebug() << "a" << a << "b" << b;
 
             //intersect 1
             //rect.top() = a*x+b;
             //x = (b - rect.top()) / -a
             QPointF i1((b - rect.top()) / -a, rect.top());
-            qDebug() << "i1" << i1;
-            qDebug() << "consider?" << rect.contains(i1);
+            //qDebug() << "i1" << i1;
+            //qDebug() << "consider?" << rect.contains(i1);
             if(rect.contains(i1))
             {
                 qreal dist = calculateDistance(p2, i1);
@@ -312,8 +319,8 @@ public:
             //rect.bottom() = a*x+b
             //x = (b - rect.bottom()) / -a
             QPointF i2((b - rect.bottom()) / -a, rect.bottom());
-            qDebug() << "i2" << i2;
-            qDebug() << "consider?" << rect.contains(i2);
+            //qDebug() << "i2" << i2;
+            //qDebug() << "consider?" << rect.contains(i2);
             if(rect.contains(i2))
             {
                 qreal dist = calculateDistance(p2, i2);
@@ -327,8 +334,8 @@ public:
             //intersect 3
             //x=rect.left()
             QPointF i3(rect.left(), a * rect.left() + b);
-            qDebug() << "i3" << i3;
-            qDebug() << "consider?" << rect.contains(i3);
+            //qDebug() << "i3" << i3;
+            //qDebug() << "consider?" << rect.contains(i3);
             if(rect.contains(i3))
             {
                 qreal dist = calculateDistance(p2, i3);
@@ -342,8 +349,8 @@ public:
             //intersect 4
             //x=rect.right()
             QPointF i4(rect.right(), a * rect.right() + b);
-            qDebug() << "i4" << i4;
-            qDebug() << "consider?" << rect.contains(i4);
+            //qDebug() << "i4" << i4;
+            //qDebug() << "consider?" << rect.contains(i4);
             if(rect.contains(i4))
             {
                 qreal dist = calculateDistance(p2, i4);
@@ -355,30 +362,41 @@ public:
             }
             return result;
         }
-        qDebug() << " ";
+        //qDebug() << " ";
     }
 
-    void preparePainterPath(QList<QPointF> points)
+    QList<QPointF> calculateLine(QPointF start, QPointF end, ogdf::DPolyline bends, QRectF sourceRect, QRectF targetRect)
     {
-        //edge line
-        QPolygonF polyLine;
-        for(auto p : points)
-            polyLine << p;
-        _line.addPolygon(polyLine);
+        QList<QPointF> linePoints;
+        linePoints << start;
+        for(auto p : bends)
+            linePoints << QPointF(p.m_x, p.m_y);
+        linePoints << end;
 
+        QPointF nearestI = calculateNearestIntersect(sourceRect, linePoints[0], linePoints[1]);
+        linePoints[0]=nearestI;
+        int len = linePoints.length();
+        nearestI = calculateNearestIntersect(targetRect, linePoints[len-1], linePoints[len-2]);
+        linePoints[len-1]=nearestI;
+
+        return linePoints;
+    }
+
+    QList<QPointF> calculateArrow(const QList<QPointF> & linePoints)
+    {
         //arrow
-        int len=points.length();
-        QLineF perpLine = QLineF(points[len-1], points[len-2]).normalVector();
+        int len=linePoints.length();
+        QLineF perpLine = QLineF(linePoints[len-1], linePoints[len-2]).normalVector();
 
         qreal arrowLen = 6;
 
         QLineF a;
-        a.setP1(points[len-1]);
+        a.setP1(linePoints[len-1]);
         a.setAngle(perpLine.angle() - 45);
         a.setLength(arrowLen);
 
         QLineF b;
-        b.setP1(points[len-1]);
+        b.setP1(linePoints[len-1]);
         b.setAngle(perpLine.angle() - 135);
         b.setLength(arrowLen);
 
@@ -386,14 +404,55 @@ public:
         c.setP1(a.p2());
         c.setP2(b.p2());
 
-        QPolygonF arrowLine;
-        arrowLine << a.p1() << a.p2() << b.p1() << b.p2() << c.p1() << c.p2();
-        _arrow.addPolygon(arrowLine);
+        QList<QPointF> arrowPoints;
+        arrowPoints << a.p1() << a.p2() << b.p1() << b.p2() << c.p1() << c.p2();
+        return arrowPoints;
+    }
+
+    QRectF calculateBoundingRect(const QList<QPointF> & linePoints, const QList<QPointF> & arrowPoints)
+    {
+        QList<QPointF> allPoints;
+        allPoints << linePoints << arrowPoints;
+        //find top-left and bottom-right points for the bounding rect
+        QPointF topLeft = allPoints[0];
+        QPointF bottomRight = topLeft;
+        for(auto p : allPoints)
+        {
+            qreal x = p.x();
+            qreal y = p.y();
+
+            if(x < topLeft.x())
+                topLeft.setX(x);
+            if(y < topLeft.y())
+                topLeft.setY(y);
+
+            if(x > bottomRight.x())
+                bottomRight.setX(x);
+            if(y > bottomRight.y())
+                bottomRight.setY(y);
+        }
+        return QRectF(topLeft, bottomRight);
+    }
+
+    void preparePainterPaths(const QList<QPointF> & linePoints, const QList<QPointF> & arrowPoints)
+    {
+        //edge line
+        QPolygonF polyLine;
+        for(auto p : linePoints)
+            polyLine << p;
+        _line.addPolygon(polyLine);
+
+        //arrow
+        QPolygonF polyArrow;
+        for(auto p : arrowPoints)
+            polyArrow << p;
+        _arrow.addPolygon(polyArrow);
     }
 
 private:
     QPainterPath _line;
     QPainterPath _arrow;
+    QRectF _boundingRect;
 };
 
 MainWindow::MainWindow(QWidget *parent) :
@@ -403,7 +462,8 @@ MainWindow::MainWindow(QWidget *parent) :
     ui->setupUi(this);
     this->doStuff();
 }
-
+#include <ogdf/tree/RadialTreeLayout.h>
+#include <ogdf/tree/TreeLayout.h>
 void MainWindow::doStuff()
 {
     using namespace ogdf;
@@ -442,7 +502,7 @@ void MainWindow::doStuff()
     }
 
     //do layout
-    ogdf::OptimalHierarchyLayout* OHL = new ogdf::OptimalHierarchyLayout;
+    OptimalHierarchyLayout* OHL = new OptimalHierarchyLayout;
     OHL->nodeDistance(25.0);
     OHL->layerDistance(50.0);
     OHL->weightBalancing(0.0);
@@ -455,7 +515,7 @@ void MainWindow::doStuff()
     SL.setLayout(OHL);
     SL.call(GA);
 
-    QGraphicsScene* scene = new QGraphicsScene(this);
+    QGraphicsScene* scene = new QGraphScene(this);
 
     //draw widget contents (nodes)
     forall_nodes(v, G)
@@ -493,21 +553,24 @@ void MainWindow::doStuff()
         QPointF end(GA.x(target), GA.y(target));
         GraphEdge* edge = new GraphEdge(start, end, bends, sourceRect, targetRect);
 
-        qDebug() << start;
-        for(auto p : bends)
-        {
-            qDebug() << QPointF(p.m_x, p.m_y);
-        }
-        qDebug() << end;
         scene->addItem(edge);
     }
 
-    //scene->setSceneRect(0, 0, GA.boundingBox().width(), GA.boundingBox().height());
-
     //draw scene
     scene->setBackgroundBrush(QBrush(Qt::darkGray));
+
     ui->graphicsView->setScene(scene);
+
+    //make sure there is some spacing
+    QRectF sceneRect = ui->graphicsView->sceneRect();
+    sceneRect.adjust(-20, -20, 20, 20);
+    ui->graphicsView->setSceneRect(sceneRect);
+
     ui->graphicsView->show();
+
+
+
+    //qDebug() << "sceneRect()" << ui->graphicsView->sceneRect();
 
     GraphIO::drawSVG(GA, "test.svg");
 }
