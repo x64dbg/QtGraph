@@ -22,6 +22,10 @@ SOURCES += main.cpp\
     QGraphScene.cpp
 
 HEADERS  += MainWindow.h \
-    QGraphScene.h
+    QGraphScene.h \
+    GraphEdge.h \
+    GraphNode.h \
+    Node.h \
+    Tree.h
 
 FORMS    += MainWindow.ui
